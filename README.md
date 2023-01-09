@@ -260,6 +260,7 @@ prefix `OCaml:`:
 | `ocaml.switch-impl-intf`     | Switch implementation/interface             | `Alt+O`            |
 | `ocaml.open-repl`            | Open REPL                                   |                    |
 | `ocaml.evaluate-selection`   | Evaluate Selection                          | `Shift+Enter`      |
+| `ocaml.evaluate-semicol`   | Evaluate between semi-colon                          | `Alt+Enter`      |
 
 ## Debugging the extension
 

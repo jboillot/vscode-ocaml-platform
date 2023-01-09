@@ -147,6 +147,77 @@ let get_code text_editor =
   else
     Vscode.TextDocument.getText document ~range:(selection :> Vscode.Range.t) ()
 
+let get_code_semicol text_editor =
+  let selection = Vscode.TextEditor.selection text_editor in
+  let document = Vscode.TextEditor.document text_editor in
+
+  log "Start";
+
+  let r = Str.regexp ";;" in
+  
+  let start_line = ref (Vscode.Selection.start selection |> Vscode.Position.line) in
+  let start_char = ref (Vscode.Selection.start selection |> Vscode.Position.character) in
+  let continue = ref true in
+  begin try [@warning "-A"]
+    let line = Vscode.TextLine.text @@ Vscode.TextDocument.lineAt document ~line:!start_line in
+    let pos = Str.search_backward r line !start_char in
+    continue := false;
+    start_char := pos + 2
+  with Not_found -> ()
+  end;
+  while !start_line > 0 && !continue do
+    log "Iterate start %d" !start_line;
+    Int.decr start_line;
+    let line = Vscode.TextLine.text @@ Vscode.TextDocument.lineAt document ~line:!start_line in
+    try [@warning "-A"]
+      let pos = Str.search_backward r line (String.length line) in
+      continue := false;
+      start_char := pos + 2
+    with Not_found -> ()
+  done;
+  let start_line, start_char =
+    if !continue
+    then 0, 0
+    else !start_line, !start_char
+  in
+
+  continue := true;
+  let end_line = ref (Vscode.Selection.end_ selection |> Vscode.Position.line) in
+  let end_char = ref (Vscode.Selection.end_ selection |> Vscode.Position.character) in
+  let continue = ref true in
+  begin try [@warning "-A"]
+    let line = Vscode.TextLine.text @@ Vscode.TextDocument.lineAt document ~line:!end_line in
+    let pos = Str.search_forward r line !end_char in
+    continue := false;
+    end_char := pos
+  with Not_found -> ()
+  end;
+  while !end_line + 1 < Vscode.TextDocument.lineCount document && !continue do
+    log "Iterate end %d" !end_line;
+    Int.incr end_line;
+    let line = Vscode.TextLine.text @@ Vscode.TextDocument.lineAt document ~line:!end_line in
+    try [@warning "-A"]
+      let pos = Str.search_forward r line 0 in
+      continue := false;
+      end_char := pos
+    with Not_found -> ()
+  done;
+  let end_line, end_char =
+    if !continue
+    then !end_line, String.length @@ Vscode.TextLine.text (Vscode.TextDocument.lineAt document ~line:!end_line)
+    else !end_line, !end_char
+  in
+
+  let selection = Vscode.Range.makePositions ~start:(Vscode.Position.make ~line:start_line ~character:start_char) ~end_:(Vscode.Position.make ~line:end_line ~character:end_char) in
+
+  log "To execute: %s" (Vscode.TextDocument.getText document ~range:selection ());
+
+  if start_line = end_line && start_char = end_char then
+    let line = Vscode.TextDocument.lineAt document ~line:start_line in
+    Vscode.TextLine.text line
+  else
+    Vscode.TextDocument.getText document ~range:selection ()
+
 let prepare_code code =
   if String.is_suffix code ~suffix:";;" then code else code ^ ";;"
 
@@ -186,6 +257,26 @@ module Command = struct
     in
     Extension_commands.register_text_editor
       ~id:Extension_consts.Commands.evaluate_selection
+      handler
+
+  let _evaluate_semicol =
+    let handler (instance : Extension_instance.t) ~textEditor ~edit:_ ~args:_ =
+      let (_ : unit Promise.t) =
+        let open Promise.Syntax in
+        let sandbox = Extension_instance.sandbox instance in
+        let+ term = create_terminal instance sandbox in
+        match term with
+        | Error err -> show_message `Error "Could not start the REPL: %s" err
+        | Ok term ->
+          let code = get_code_semicol textEditor in
+          if String.length code > 0 then
+            let code = prepare_code code in
+            Terminal_sandbox.send term code
+      in
+      ()
+    in
+    Extension_commands.register_text_editor
+      ~id:Extension_consts.Commands.evaluate_semicol
       handler
 end
 
